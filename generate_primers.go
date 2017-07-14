@@ -1,20 +1,14 @@
 package main
 
-import "fmt"
-import "os"
-import "strings"
-import "bufio"
-import "strconv"
-import "sort"
-
-
-//TODO:
-// > generatePrimers function
-//     > Try to create the best combination of forward and reverse sequences
-//     > Score the final primers (?)
-// > Add the ability to allow the user to ignore a certain amount of outliers when looking for degeneracies.  For example, if there is only one
-//   genome that has a degeneracy in position 1, then the user can skip it if an option is given (--ignore 1(?))
-// > Command line args/options
+import (
+  "fmt"
+  "os"
+  "strings"
+  "bufio"
+  "strconv"
+  "sort"
+  "flag"
+)
 
 type Sequence struct {
   name string
@@ -25,8 +19,8 @@ type Sequence struct {
 
 
 // Generates the primers
-func generatePrimers(seqFile, fastaFile string) {
-  degens := findDegens(seqFile, fastaFile)
+func generatePrimers(seqFile, fastaFile string, ignore int) (map[string]string){
+  degens := findDegens(seqFile, fastaFile, ignore)
 
   primers := make(map[string]string)
 
@@ -49,10 +43,14 @@ func generatePrimers(seqFile, fastaFile string) {
       }
     }
   }
-  
+
+  /*
   for key, val := range primers {
     fmt.Println(key + ":\t" + val)
   }
+  */
+
+  return primers
 }
 
 
@@ -92,7 +90,7 @@ func getCode(bases string) (string) {
 
 
 
-func findDegens(seqFile, fastaFile string) (map[string]map[int]string) {
+func findDegens(seqFile, fastaFile string, ignore int) (map[string]map[int]string) {
 
   // Key is sequence name, value is another map where key is the position of a base within the
   // sequence and value is a sorted string containing all bases that appeared in that position
@@ -120,13 +118,18 @@ func findDegens(seqFile, fastaFile string) (map[string]map[int]string) {
     // For each genome
     for _, genome := range genomes {
 
+      count := 0
+
       // If sequence is forward
       if sequence.isForward {
 
         // Iterate over each base in the sequence, looking for differences in the range specified by the sequence.val
         for i, _ := range sequence.seq {
           if sequence.seq[i] != genome[sequence.val + i - 1] && !(strings.Contains(out[sequence.name][i], string(genome[sequence.val + i - 1]))) {
-            out[sequence.name][i] += string(genome[sequence.val + i - 1])
+            count++
+            if count >= ignore {
+              out[sequence.name][i] += string(genome[sequence.val + i - 1])
+            }
           }
         }
 
@@ -136,7 +139,10 @@ func findDegens(seqFile, fastaFile string) (map[string]map[int]string) {
         // Iterate over the sequence, performing a little bit of gymnastics to iterate forward over both the sequence.seq and the genome even when the for loop is iterating backward
         for i := len(sequence.seq) - 1; i >= 0; i-- {
           if sequence.seq[(len(sequence.seq)-1) - i] != genome[sequence.val - i - 1] && !(strings.Contains(out[sequence.name][(len(sequence.seq)-1) - i], string(genome[sequence.val - i - 1]))) {
-            out[sequence.name][(len(sequence.seq)-1) - i] += string(genome[sequence.val - i - 1])
+            count++
+            if count >= ignore {
+              out[sequence.name][(len(sequence.seq)-1) - i] += string(genome[sequence.val - i - 1])
+            }
           }
         }
       }
@@ -274,17 +280,19 @@ func reverseComplement(sequence string) (out string) {
   return
 }
 
-/*
-func contains(str []byte, token byte) (bool) {
-  for _, item := range str {
+
+// Return true if token is in array (int and int array respectively)
+func contains(array []int, token int) (bool) {
+  for _, item := range array {
     if item == token {
       return true
     }
   }
   return false
 }
-*/
 
+
+// Sorts str
 func sortString(str string) (string) {
   if len(str) <= 1 {
     return str
@@ -294,14 +302,110 @@ func sortString(str string) (string) {
   return strings.Join(s, "")
 }
 
-func main() {
-  //fmt.Println(reverseComplement("GGCAAAAGCTATTTTCTCAA"))
-  //fmt.Println(getSeqs("GCA_000008865.1_Escherichia_coli_Sakai_RIMD_0509952_Complete_Genome_primers.seqs"))
-  //fmt.Println(findDegens("test_data\\GCA_000008865.1_Escherichia_coli_Sakai_RIMD_0509952_Complete_Genome_primers.seqs", "test_data\\all_concatenated_aligned.fasta"))
-  /*
-  for _, c := range []string{"A", "C", "G", "T", "AC", "AG", "AT", "CG", "CT", "GT", "ACG", "ACT", "AGT", "CGT", "ACGT"} {
-    fmt.Println(getCode(c))
+
+// Prints all relevent data in nice format
+func printOutput(primers map[string]string) {
+
+  // Number of degens is the key, array of the names of sequences
+  // that have that number of degens is the value
+  forward := make(map[int][]string)
+  reverse := make(map[int][]string)
+
+  // Keeps track of the amount of degens found so that it can be sorted
+  var forwardDegens []int
+  var reverseDegens []int
+
+  // Name of sequence is the key, array of positions where degens occur
+  // within that sequence is value
+  positions := make(map[string][]int)
+
+  // Gather information about each primer, including the amount of degens
+  // and their positions
+  for key, val := range primers {
+
+    degens := 0
+    for i, char := range val {
+      if char != 'A' && char != 'C' && char != 'G' && char != 'T' {
+        degens++
+        positions[key] = append(positions[key], i)
+      }
+    }
+
+    data := strings.Split(key, "_")
+    if data[1] == "forward" {
+      forward[degens] = append(forward[degens], key)
+      if !(contains(forwardDegens, degens)){
+        forwardDegens = append(forwardDegens, degens)
+      }
+    } else {
+      reverse[degens] = append(reverse[degens], key)
+      if !(contains(reverseDegens, degens)){
+        reverseDegens = append(reverseDegens, degens)
+      }
+    }
   }
-  */
-  generatePrimers("test_data\\GCA_000008865.1_Escherichia_coli_Sakai_RIMD_0509952_Complete_Genome_primers.seqs", "test_data\\all_concatenated_aligned.fasta")
+
+
+  sort.Ints(forwardDegens)
+  sort.Ints(reverseDegens)
+
+
+  // Print relevant data
+  fmt.Println("\nFORWARD SEQUENCES")
+  fmt.Println("Name\t\tPrimer\t\t\t# of degeneracies")
+  fmt.Println("---------------------------------------------------------")
+
+
+  for _, num := range forwardDegens {
+    for _, name := range forward[num] {
+      fmt.Println(name + "\t" + primers[name] + "\t" + strconv.Itoa(num))
+
+      var carrots []rune
+
+      for i := 0; i < len(primers[name]); i++ {
+        carrots = append(carrots, ' ')
+      }
+
+      for _, index := range positions[name] {
+        carrots[index] = '^'
+      }
+
+      fmt.Println("\t\t" + string(carrots))
+      fmt.Println()
+    }
+  }
+
+  fmt.Println("\nREVERSE SEQUENCES")
+  fmt.Println("Name\t\tPrimer\t\t\t# of degeneracies")
+  fmt.Println("---------------------------------------------------------")
+  for _, num := range reverseDegens {
+    for _, name := range reverse[num] {
+      fmt.Println(name + "\t" + primers[name] + "\t" + strconv.Itoa(num))
+
+      var carrots []rune
+
+      for i := 0; i < len(primers[name]); i++ {
+        carrots = append(carrots, ' ')
+      }
+
+      for _, index := range positions[name] {
+        carrots[index] = '^'
+      }
+
+      fmt.Println("\t\t" + string(carrots))
+      fmt.Println()
+    }
+  }
+
+}
+
+func main() {
+  seqPtr := flag.String("s", "", "[Required] Path to .seq file")
+  fastaPtr := flag.String("f", "", "[Required] Path to .fasta file")
+  ignorePtr := flag.Int("i", 0, "Number of SNPs to ignore before considering a position a degeneracy (default 0)")
+
+  flag.Parse()
+
+  primers := generatePrimers(*seqPtr, *fastaPtr, *ignorePtr)
+  printOutput(primers)
 }
