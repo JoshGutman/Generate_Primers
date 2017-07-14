@@ -5,51 +5,98 @@ import "os"
 import "strings"
 import "bufio"
 import "strconv"
+import "sort"
 
 
 //TODO:
-// > Sort each array (the value of the nested map) in findDegens
-// > Return the nested maps in findDegens
-// > generate_primers function -- take in the nested maps and generate a few of the best primers
-//     > Best = try to pick the reverse and forward reads with the fewest degeneracies
-//     > Once the best combinations are picked, convert them to the format that includes the arbitrary bases (e.g. A OR T OR C = H or whatever)
-//     > Don't forget to reverse-Complement the reverse sequences again before doing the above step
+// > generatePrimers function
+//     > Try to create the best combination of forward and reverse sequences
 //     > Score the final primers (?)
 // > Add the ability to allow the user to ignore a certain amount of outliers when looking for degeneracies.  For example, if there is only one
-//   genome that has a degeneracy in position 1, then the user can skip it if an option is given (--fuzz 1(?))
-// > Command line args/options 
-
-
-/*
-
-Takes in target_primers.seqs and all_concatenated_alligned.fasta
-
-For each sequence in target_primers.seq:
-  > Calculate degeneracies
-    >> Be sure to keep track of which bases are in the degeneracies
-    >> Be sure to do reverse complement of reverse sequences
-    >> Store in map
-  > Calculate primer
-
-Choose the best forward and reverse sequence (make sure 100 < |XX -YY| + 1 < 250)
-
-
-*/
+//   genome that has a degeneracy in position 1, then the user can skip it if an option is given (--ignore 1(?))
+// > Command line args/options
 
 type Sequence struct {
   name string
   seq string
   isForward bool
   val int
-  length int
 }
 
 
-func findDegens(seqFile, fastaFile string) {
+// Generates the primers
+func generatePrimers(seqFile, fastaFile string) {
+  degens := findDegens(seqFile, fastaFile)
 
-  // Key is sequence name, value is another map where key is the position of a base within the sequence and value is
-  //  a sorted byte containing the numeric representation (type=byte) of all bases that appeared in that position
-  out := make(map[string]map[int][]byte)
+  primers := make(map[string]string)
+
+  // For each sequence
+  for key, _ := range degens {
+    primers[key] = ""
+
+    // For each base in the current sequence
+    for i := 0; i < len(degens[key]); i++ {
+
+      // If the current sequence is reverse, get the code of the reverse complement
+      // of the base and insert it at the beginning of the primer
+      if key[len(key)-7:] == "reverse" {
+        primers[key] = getCode(reverseComplement(degens[key][i])) + primers[key]
+
+      // If the current sequence is forward, get the code of the base and put
+      // it at the end of the primer
+      } else {
+        primers[key] += getCode(degens[key][i])
+      }
+    }
+  }
+  
+  for key, val := range primers {
+    fmt.Println(key + ":\t" + val)
+  }
+}
+
+
+// Returns ambiguity code for a string of bases. The string of bases must be in
+// alphabetical order. "AGT" will work but "ATG" will not.
+func getCode(bases string) (string) {
+  if len(bases) == 1 {
+    return bases
+  }
+  switch bases {
+    case "AG":
+      return "R"
+    case "CT":
+      return "Y"
+    case "CG":
+      return "S"
+    case "AT":
+      return "W"
+    case "GT":
+      return "K"
+    case "AC":
+      return "M"
+    case "CGT":
+      return "B"
+    case "AGT":
+      return "D"
+    case "ACT":
+      return "H"
+    case "ACG":
+      return "V"
+    case "ACGT":
+      return "N"
+    default:
+      return "(ERROR)"
+  }
+}
+
+
+
+func findDegens(seqFile, fastaFile string) (map[string]map[int]string) {
+
+  // Key is sequence name, value is another map where key is the position of a base within the
+  // sequence and value is a sorted string containing all bases that appeared in that position
+  out := make(map[string]map[int]string)
 
   sequences := getSeqs(seqFile)
   genomes := getGenomes(fastaFile)
@@ -63,11 +110,11 @@ func findDegens(seqFile, fastaFile string) {
       sequence.seq = reverseComplement(sequence.seq)
     }
 
-    out[sequence.name] = make(map[int][]byte)
+    out[sequence.name] = make(map[int]string)
 
     // Initialize the first array slot of each sequence to the correct char
     for i, _ := range sequence.seq {
-      out[sequence.name][i] = append(out[sequence.name][i], sequence.seq[i])
+      out[sequence.name][i] += string(sequence.seq[i])
     }
 
     // For each genome
@@ -78,8 +125,8 @@ func findDegens(seqFile, fastaFile string) {
 
         // Iterate over each base in the sequence, looking for differences in the range specified by the sequence.val
         for i, _ := range sequence.seq {
-          if sequence.seq[i] != genome[sequence.val + i - 1] && !(contains(out[sequence.name][i], genome[sequence.val + i - 1])) {
-            out[sequence.name][i] = append(out[sequence.name][i], genome[sequence.val + i - 1])
+          if sequence.seq[i] != genome[sequence.val + i - 1] && !(strings.Contains(out[sequence.name][i], string(genome[sequence.val + i - 1]))) {
+            out[sequence.name][i] += string(genome[sequence.val + i - 1])
           }
         }
 
@@ -88,8 +135,8 @@ func findDegens(seqFile, fastaFile string) {
 
         // Iterate over the sequence, performing a little bit of gymnastics to iterate forward over both the sequence.seq and the genome even when the for loop is iterating backward
         for i := len(sequence.seq) - 1; i >= 0; i-- {
-          if sequence.seq[(len(sequence.seq)-1) - i] != genome[sequence.val - i - 1] && !(contains(out[sequence.name][(len(sequence.seq)-1) - i], genome[sequence.val - i - 1])) {
-            out[sequence.name][(len(sequence.seq)-1) - i] = append(out[sequence.name][(len(sequence.seq)-1) - i], genome[sequence.val - i - 1])
+          if sequence.seq[(len(sequence.seq)-1) - i] != genome[sequence.val - i - 1] && !(strings.Contains(out[sequence.name][(len(sequence.seq)-1) - i], string(genome[sequence.val - i - 1]))) {
+            out[sequence.name][(len(sequence.seq)-1) - i] += string(genome[sequence.val - i - 1])
           }
         }
       }
@@ -98,20 +145,24 @@ func findDegens(seqFile, fastaFile string) {
 
   }
 
+  // Sort each string
   for key, val := range out {
-    fmt.Println(key)
-    for _, i := range val {
-      fmt.Println(i)
+    for i, s := range val {
+      out[key][i] = sortString(s)
     }
-    fmt.Println()
   }
+
+  return out
 }
 
 
+// Gets the nucleotide sequences from the .fasta file and
+// returns them, each as single long string in a string array
 func getGenomes(fastaFile string) ([]string) {
 
   var out []string
 
+  // Open fasta file
   fi, err := os.Open(fastaFile)
   if err != nil {
     fmt.Println("Error - couldn't open .fasta file")
@@ -122,13 +173,19 @@ func getGenomes(fastaFile string) ([]string) {
 
   var temp string
 
+  // Skip first line (Assuming it's a header)
   scanner.Scan()
 
+  // For each line in the file
   for scanner.Scan() {
     line := scanner.Text()
+
+    // If the line begins with '>', assume it's a header
     if line[0] == 62 {
       out = append(out, temp)
       temp = ""
+
+    // If the line doesn't begin with '>', assume it's a seuence of nucleotides
     } else {
       temp += line
     }
@@ -138,10 +195,20 @@ func getGenomes(fastaFile string) ([]string) {
 }
 
 
+// Gets the sequences from the .seq file and returns them in an array of Sequence structs
+// Assuming you have the following in the .seq file:
+//    >99_forward
+//    ACGT
+// You will get a Sequence struct with the following fields:
+//    name = "99_forward"
+//    seq = "ACGT"
+//    isForward = true
+//    val = 99
 func getSeqs(seqFile string) ([]Sequence) {
 
   var out []Sequence
 
+  // Open the .seq file
   fi, err := os.Open(seqFile)
   if err != nil {
     fmt.Println("Error - couldn't open .seq file")
@@ -149,6 +216,7 @@ func getSeqs(seqFile string) ([]Sequence) {
   }
   scanner := bufio.NewScanner(fi)
 
+  // For each line in the file
   for scanner.Scan() {
 
     var temp Sequence
@@ -172,9 +240,6 @@ func getSeqs(seqFile string) ([]Sequence) {
     scanner.Scan()
     temp.seq = scanner.Text()
 
-    // Get length of sequence
-    temp.length = len(temp.seq)
-
     out = append(out, temp)
   }
 
@@ -182,7 +247,8 @@ func getSeqs(seqFile string) ([]Sequence) {
 }
 
 
-
+// Returns the reverse complement of a sequence of nucleotides
+// Only works with 'A', 'C', 'G', 'T' chars
 func reverseComplement(sequence string) (out string) {
   for i := len(sequence)-1; i >= 0; i-- {
 
@@ -208,7 +274,7 @@ func reverseComplement(sequence string) (out string) {
   return
 }
 
-
+/*
 func contains(str []byte, token byte) (bool) {
   for _, item := range str {
     if item == token {
@@ -217,10 +283,25 @@ func contains(str []byte, token byte) (bool) {
   }
   return false
 }
+*/
+
+func sortString(str string) (string) {
+  if len(str) <= 1 {
+    return str
+  }
+  s := strings.Split(str, "")
+  sort.Strings(s)
+  return strings.Join(s, "")
+}
 
 func main() {
   //fmt.Println(reverseComplement("GGCAAAAGCTATTTTCTCAA"))
   //fmt.Println(getSeqs("GCA_000008865.1_Escherichia_coli_Sakai_RIMD_0509952_Complete_Genome_primers.seqs"))
-  //fmt.Println(contains([]int {1, 2, 3}, 4))
-  findDegens("GCA_000008865.1_Escherichia_coli_Sakai_RIMD_0509952_Complete_Genome_primers.seqs", "all_concatenated_aligned.fasta")
+  //fmt.Println(findDegens("test_data\\GCA_000008865.1_Escherichia_coli_Sakai_RIMD_0509952_Complete_Genome_primers.seqs", "test_data\\all_concatenated_aligned.fasta"))
+  /*
+  for _, c := range []string{"A", "C", "G", "T", "AC", "AG", "AT", "CG", "CT", "GT", "ACG", "ACT", "AGT", "CGT", "ACGT"} {
+    fmt.Println(getCode(c))
+  }
+  */
+  generatePrimers("test_data\\GCA_000008865.1_Escherichia_coli_Sakai_RIMD_0509952_Complete_Genome_primers.seqs", "test_data\\all_concatenated_aligned.fasta")
 }
