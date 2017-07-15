@@ -126,22 +126,29 @@ func findDegens(seqFile, fastaFile string, ignore int) (map[string]map[int]strin
         // Iterate over each base in the sequence, looking for differences in the range specified by the sequence.val
         for i, _ := range sequence.seq {
           if sequence.seq[i] != genome[sequence.val + i - 1] && !(strings.Contains(out[sequence.name][i], string(genome[sequence.val + i - 1]))) {
-            count++
-            if count >= ignore {
-              out[sequence.name][i] += string(genome[sequence.val + i - 1])
+            // Don't count degeneracy if the genome has '-'
+            if genome[sequence.val + i - 1] != 45 {
+              count++
+              if count >= ignore {
+                out[sequence.name][i] += string(genome[sequence.val + i - 1])
+              }
             }
+
           }
         }
 
-      // If the sequence is not forward
+      // If the sequence is reverse
       } else {
 
         // Iterate over the sequence, performing a little bit of gymnastics to iterate forward over both the sequence.seq and the genome even when the for loop is iterating backward
         for i := len(sequence.seq) - 1; i >= 0; i-- {
           if sequence.seq[(len(sequence.seq)-1) - i] != genome[sequence.val - i - 1] && !(strings.Contains(out[sequence.name][(len(sequence.seq)-1) - i], string(genome[sequence.val - i - 1]))) {
-            count++
-            if count >= ignore {
-              out[sequence.name][(len(sequence.seq)-1) - i] += string(genome[sequence.val - i - 1])
+            // Don't count degeneracy if the genome has '-'
+            if genome[sequence.val - i - 1] != 45 {
+              count++
+              if count >= ignore {
+                out[sequence.name][(len(sequence.seq)-1) - i] += string(genome[sequence.val - i - 1])
+              }
             }
           }
         }
